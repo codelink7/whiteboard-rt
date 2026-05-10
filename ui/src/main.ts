@@ -31,16 +31,6 @@ interface Vec2 {
     y: number
 }
 
-interface RoomData {
-    id: string
-    cameraTarget: Vec2
-}
-
-let roomData: RoomData = {
-    id: "",
-    cameraTarget: {x:0,y:0}
-}
-
 let mouseCurrent: Vec2 = {x:0,y:0}
 let mouseTarget: Vec2 = {x:0,y:0}
 let mouseEase = 0.1
@@ -56,6 +46,27 @@ interface Entity {
     radius?: number
     color?: string
     draw(): void
+}
+
+enum MessageType {
+    Snapshot,
+    Update
+}
+
+interface Message {
+    type: MessageType
+}
+
+interface RoomData {
+    id: string
+    cameraTarget: Vec2
+    objects: Entity[]
+}
+
+let roomData: RoomData = {
+    id: "",
+    cameraTarget: {x:0,y:0},
+    objects: []
 }
 
 const randRange = (min: number = 0, max: number = 1) => {
@@ -78,6 +89,10 @@ function drawCircle(this: Entity) {
 }
 
 let objects: Entity[] = []
+
+function fillData() {
+
+}
 
 for(let i = 0; i < 50; i++) {
     let s = Math.random() > 0.5 ? Shape.Rect : Shape.Circle
