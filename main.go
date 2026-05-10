@@ -8,27 +8,25 @@ import (
 	"log"
 	"net"
 	"net/http"
-	"sync"
 )
 
 type Vec2 struct {
-	x float32
-	y float32
+	X float32 `json:"x"`
+	Y float32 `json:"y"`
 }
 
 type RoomData struct {
-	id           string
-	cameraTarget Vec2
+	Id           string `json:"id"`
+	CameraTarget Vec2   `json:"cameraTarget"`
 }
 
 var (
 	outgoing        chan []byte
 	rooms           map[string]RoomData
 	userIdCounter   = 0
+	userOutChannels map[int]chan []byte
+	roomUsers       map[string]map[int]any
 	userRoom        map[int]string
-	roomUsers       map[string]map[int]bool
-	roomUpdateCount map[string]int
-	mu              sync.Mutex
 )
 
 func getPayloadFromMask(buf []byte, length uint64, m uint8) []byte {
@@ -89,66 +87,48 @@ func readLoop(conn net.Conn, userId int) {
 
 		var jsonData RoomData
 		json.Unmarshal(payload, &jsonData)
-		fmt.Println(jsonData)
 
-		fmt.Println(rooms)
-		roomId := jsonData.id
-		mu.Lock()
+		roomId := jsonData.Id
 		rooms[roomId] = jsonData
 		userRoom[userId] = roomId
 
 		if roomUsers[roomId] != nil {
 			roomUsers[roomId][userId] = true
 		} else {
-			roomUsers[roomId] = make(map[int]bool)
+			roomUsers[roomId] = make(map[int]any)
 			roomUsers[roomId][userId] = true
 		}
 
-		roomUpdateCount[roomId] = len(roomUsers[roomId])
-		mu.Unlock()
+		for k, v := range userOutChannels {
+			if k != userId {
+				_, exists := roomUsers[roomId][k]
+				if exists {
+					v <- []byte("updated")
+				}
+			}
+		}
 
-		fmt.Println(rooms)
-		fmt.Println(len(rooms))
-
-		// outgoing <- payload
-
-		// fmt.Println("Received: ", n, fin, opcode)
 	}
 	conn.Close()
 	fmt.Println("-------------")
 }
 
 func writeLoop(conn net.Conn, out <-chan []byte, userId int) {
-	for {
-		mu.Lock()
-		rId := userRoom[userId]
-		room := rooms[rId]
-		if roomUpdateCount[rId] > 0 {
-			if !roomUsers[rId][userId] {
-				msg, err := json.Marshal(room)
-				if err != nil {
-					log.Println(err)
-				}
-				frame := []byte{
-					0x81,
-					byte(len(msg)),
-				}
-				frame = append(frame, msg...)
-				conn.Write(frame)
+	for msg := range userOutChannels[userId] {
+		if string(msg) == "updated" {
+			data, err := json.Marshal(rooms[userRoom[userId]])
+			fmt.Println(userRoom[userId])
+			if err != nil {
+				log.Println(err)
 			}
-			roomUsers[rId][userId] = false
-			roomUpdateCount[rId]--
+			frame := []byte{
+				0x81,
+				byte(len(data)),
+			}
+			frame = append(frame, data...)
+			conn.Write(frame)
 		}
-		mu.Unlock()
 	}
-	// for msg := range out {
-	// 	frame := []byte{
-	// 		0x81,
-	// 		byte(len(msg)),
-	// 	}
-	// 	frame = append(frame, msg...)
-	// 	conn.Write(frame)
-	// }
 }
 
 func main() {
@@ -157,9 +137,9 @@ func main() {
 
 	rooms = make(map[string]RoomData)
 	outgoing = make(chan []byte)
+	roomUsers = make(map[string]map[int]any)
 	userRoom = make(map[int]string)
-	roomUpdateCount = make(map[string]int)
-	roomUsers = make(map[string]map[int]bool)
+	userOutChannels = make(map[int]chan []byte)
 
 	fs := http.FileServer(http.Dir("./ui/static"))
 
@@ -196,6 +176,8 @@ func main() {
 
 		user := userIdCounter
 		userIdCounter++
+
+		userOutChannels[user] = make(chan []byte)
 
 		go readLoop(conn, user)
 		go writeLoop(conn, outgoing, user)

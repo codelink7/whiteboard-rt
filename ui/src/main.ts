@@ -22,6 +22,7 @@ if (!ctx) {
 
 const wsUri = "ws://127.0.0.1:3000/websocket"
 const websocket = new WebSocket(wsUri)
+let websocketReady = false
 
 let keys: Record<string, boolean> = {}
 
@@ -96,6 +97,7 @@ if(location.pathname.slice(1).split("/")[0]?.length == 36) {
 
     websocket.addEventListener("open", (ev) => {
         console.log("Socket Connected");
+        websocketReady = true
     })
 
     websocket.addEventListener("message", (ev: MessageEvent) => {
@@ -112,13 +114,13 @@ if(location.pathname.slice(1).split("/")[0]?.length == 36) {
     roomData.id = crypto.randomUUID()
     history.pushState({}, "", roomData.id)
 
-    websocket.send(JSON.stringify({
-        id: roomData.id,
-        cameraTarget: roomData.cameraTarget
-    }))
-
     websocket.addEventListener("open", (ev) => {
         console.log("Socket Connected");
+        websocketReady = true
+        websocket.send(JSON.stringify({
+            id: roomData.id,
+            cameraTarget: roomData.cameraTarget
+        }))
     })
 
     websocket.addEventListener("message", (ev: MessageEvent) => {
@@ -179,18 +181,32 @@ window.addEventListener("keyup", (ev) => {
     keys[ev.code] = false
 })
 
+//#region fix keys stalling as true not being unset, modifier keys specifically (ControlLeft)
+window.addEventListener("blur", () => {
+    for(const key in keys) {
+        keys[key] = false
+    }
+})
+
+document.addEventListener("visibilitychange", () => {
+    if(document.hidden) {
+        for(const key in keys) {
+            keys[key] = false
+        }
+    }
+})
+//#endregion
+
 window.addEventListener("mousemove", (ev) => {
     mouseTarget.x = ev.clientX
     mouseTarget.y = ev.clientY
-})
-
-window.addEventListener("mousedown", () => mouseDown = true)
-window.addEventListener("mouseup", () => {
-    mouseDown = false
-    if(websocket.OPEN) {
+    if(websocket.OPEN && keys["ControlLeft"] && mouseDown) {
         websocket.send(JSON.stringify({
             id: roomData.id,
             cameraTarget: roomData.cameraTarget
         }))
     }
 })
+
+window.addEventListener("mousedown", () => mouseDown = true)
+window.addEventListener("mouseup", () => mouseDown = false)
