@@ -1,24 +1,12 @@
 package main
 
 import (
-	"crypto/sha1"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net"
 	"net/http"
 )
-
-type Vec2 struct {
-	X float32 `json:"x"`
-	Y float32 `json:"y"`
-}
-
-type RoomData struct {
-	Id           string `json:"id"`
-	CameraTarget Vec2   `json:"cameraTarget"`
-}
 
 var (
 	outgoing        chan []byte
@@ -107,7 +95,6 @@ func readLoop(conn net.Conn, userId int) {
 				}
 			}
 		}
-
 	}
 	conn.Close()
 	fmt.Println("-------------")
@@ -147,41 +134,43 @@ func main() {
 
 	router.HandleFunc("GET /", home)
 
-	router.HandleFunc("GET /websocket", func(w http.ResponseWriter, r *http.Request) {
-		const wsMagicString = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
-		wsKey := r.Header.Get("Sec-WebSocket-Key")
+	// router.HandleFunc("GET /websocket", func(w http.ResponseWriter, r *http.Request) {
+	// 	const wsMagicString = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+	// 	wsKey := r.Header.Get("Sec-WebSocket-Key")
 
-		hasher := sha1.New()
-		hasher.Write([]byte(wsKey + wsMagicString))
+	// 	hasher := sha1.New()
+	// 	hasher.Write([]byte(wsKey + wsMagicString))
 
-		sha1Sum := hasher.Sum(nil)
+	// 	sha1Sum := hasher.Sum(nil)
 
-		acceptKey := base64.StdEncoding.EncodeToString(sha1Sum)
+	// 	acceptKey := base64.StdEncoding.EncodeToString(sha1Sum)
 
-		w.Header().Add("Sec-WebSocket-Accept", acceptKey)
-		w.Header().Add("Connection", "Upgrade")
-		w.Header().Add("Upgrade", "websocket")
-		w.WriteHeader(http.StatusSwitchingProtocols)
+	// 	w.Header().Add("Sec-WebSocket-Accept", acceptKey)
+	// 	w.Header().Add("Connection", "Upgrade")
+	// 	w.Header().Add("Upgrade", "websocket")
+	// 	w.WriteHeader(http.StatusSwitchingProtocols)
 
-		// hijack tcp
-		hj, ok := w.(http.Hijacker)
-		if !ok {
-			return
-		}
+	// 	// hijack tcp
+	// 	hj, ok := w.(http.Hijacker)
+	// 	if !ok {
+	// 		return
+	// 	}
 
-		conn, _, err := hj.Hijack()
-		if err != nil {
-			log.Print(err.Error())
-		}
+	// 	conn, _, err := hj.Hijack()
+	// 	if err != nil {
+	// 		log.Print(err.Error())
+	// 	}
 
-		user := userIdCounter
-		userIdCounter++
+	// 	user := userIdCounter
+	// 	userIdCounter++
 
-		userOutChannels[user] = make(chan []byte)
+	// 	userOutChannels[user] = make(chan []byte)
 
-		go readLoop(conn, user)
-		go writeLoop(conn, outgoing, user)
-	})
+	// 	go readLoop(conn, user)
+	// 	go writeLoop(conn, outgoing, user)
+	// })
+
+	router.HandleFunc("GET /websocket", handleWebsocket)
 
 	log.Println("Starting server at http://localhost:3000")
 

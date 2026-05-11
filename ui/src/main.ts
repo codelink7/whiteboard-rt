@@ -20,7 +20,7 @@ if (!ctx) {
 
 // ctx.putImageData(texture, 0, 0)
 
-const wsUri = "ws://127.0.0.1:3000/websocket"
+const wsUri = "ws://localhost:3000/websocket"
 const websocket = new WebSocket(wsUri)
 let websocketReady = false
 
