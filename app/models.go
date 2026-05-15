@@ -27,6 +27,7 @@ type Shape struct {
 	Position Vec2
 	Size     Vec2
 	Radius   float32
+	Filled   bool
 	Points   []Vec2
 	Text     Text
 	Color    uint
@@ -59,6 +60,7 @@ const (
 )
 
 type Event struct {
+	UserId    string    `json:"user_id"`
 	Timestamp int64     `json:"timestamp"`
 	Type      EventType `json:"type"`
 	Value     []byte    `json:"value"`

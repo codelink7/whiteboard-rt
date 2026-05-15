@@ -3,10 +3,11 @@ export enum MessageType {
     ConnectToCanvas,
     CanvasCreated,
 	UserCreated,
-    CursorUpdate
+    CursorUpdate,
+    CanvasEvent
 }
 
 export interface Message {
     type: MessageType
-    data: string
+    data: any
 }

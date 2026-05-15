@@ -8,6 +8,7 @@ const (
 	CanvasCreated
 	UserCreated
 	CursorUpdate
+	CanvasEvent
 )
 
 type Message struct {

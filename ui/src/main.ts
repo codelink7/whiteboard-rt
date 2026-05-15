@@ -1,4 +1,5 @@
 import { type Message, MessageType } from "./messaging.js"
+import { type Vec2 } from "./canvas_model.js"
 
 const canvas = document.getElementById("canvas") as HTMLCanvasElement
 canvas.width = window.innerWidth
@@ -24,14 +25,8 @@ if (!ctx) {
 
 const wsUri = "ws://localhost:3000/websocket"
 const websocket = new WebSocket(wsUri)
-let websocketReady = false
 
 let keys: Record<string, boolean> = {}
-
-interface Vec2 {
-    x: number
-    y: number
-}
 
 let mouseCurrent: Vec2 = {x:0,y:0}
 let mouseTarget: Vec2 = {x:0,y:0}
