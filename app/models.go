@@ -1,15 +1,8 @@
 package main
 
-import "github.com/gorilla/websocket"
-
 type Vec2 struct {
 	X float32 `json:"x"`
 	Y float32 `json:"y"`
-}
-
-type RoomData struct {
-	Id           string `json:"id"`
-	CameraTarget Vec2   `json:"cameraTarget"`
 }
 
 type User struct {
@@ -50,13 +43,13 @@ type BrushStroke struct {
 	Id        string
 	LineWidth float32
 	Points    []Vec2
-	uint
+	Color     uint
 }
 
 type CanvasData struct {
-	Shapes       []Shape
-	Text         []Text
-	BrushStrokes []BrushStroke
+	Shapes       []*Shape
+	Text         []*Text
+	BrushStrokes []*BrushStroke
 }
 
 type EventType int
@@ -76,35 +69,6 @@ type Canvas struct {
 	OwnerId  string      `json:"owner_id"`
 	Snapshot *CanvasData `json:"snapshot"`
 	EventLog []*Event    `json:"event_log"`
-}
-
-// the room models the hub for connected clients
-type Room struct {
-	CanvasId  string
-	Clients   map[*websocket.Conn]User
-	Broadcast chan []byte
-}
-
-type MessageType int
-
-const (
-	NewCanvas MessageType = iota
-	ConnectToCanvas
-	CursorUpdate
-)
-
-type Message struct {
-	Type MessageType `json:"type"`
-	Data []byte      `json:"data"`
-}
-
-type NewCanvasMessage struct {
-	UserId string `json:"user_id"`
-}
-
-type ConnectToCanvasMessage struct {
-	UserId   string `json:"user_id"`
-	CanvasId string `json:"canvas_id"`
 }
 
 var (

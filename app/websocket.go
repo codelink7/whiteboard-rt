@@ -15,22 +15,19 @@ var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
 		return true
 	},
+	ReadBufferSize:  1024,
+	WriteBufferSize: 1024,
 }
 
-var clients = make(map[*websocket.Conn]bool)      // Connected clients
-var roomBroadcasts = make(map[string]chan []byte) // Broadcast channel
-var mu = &sync.Mutex{}                            // Protect clients map
+var mu = &sync.Mutex{} // Protect clients map
 
 func handleWebsocket(w http.ResponseWriter, r *http.Request) {
 	// Upgrade the HTTP connection to a WebSocket connection
-	conn, err := upgrdr.Upgrade(w, r, nil)
+	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		fmt.Println("Error upgrading:", err)
 		return
 	}
-	// bug: we're closing connection before goroutines can use it
-	// as the defer is reached since the goroutines won't block
-	defer conn.Close()
 
 	// init/handshake/connection start flow
 	// 1. Check if user sent user_id
@@ -61,13 +58,17 @@ func handleWebsocket(w http.ResponseWriter, r *http.Request) {
 	// but we're testing with in-memory data for now
 	var canvas *Canvas
 	var user *User
+	canvasCreated := false
+	userCreated := false
 	if initMessage.Type == ConnectToCanvas || initMessage.Type == NewCanvas {
 		switch initMessage.Type {
 		case NewCanvas:
+			canvasCreated = true
+			d, _ := json.Marshal(initMessage.Data)
 			var newCanvasMsg NewCanvasMessage
+			json.Unmarshal(d, &newCanvasMsg)
 			{
 				canvas = &Canvas{}
-				json.Unmarshal(initMessage.Data, &newCanvasMsg)
 				canvas.Id = uuid.Must(uuid.NewV4()).String()
 
 				if len(newCanvasMsg.UserId) > 0 {
@@ -81,8 +82,11 @@ func handleWebsocket(w http.ResponseWriter, r *http.Request) {
 					}
 					canvases = append(canvases, canvas)
 					mu.Unlock()
-					break
+					if user != nil {
+						break
+					}
 				}
+				userCreated = true
 				user = &User{}
 				user.Id = uuid.Must(uuid.NewV4()).String()
 				user.CurrentCanvasId = canvas.Id
@@ -95,8 +99,9 @@ func handleWebsocket(w http.ResponseWriter, r *http.Request) {
 				break
 			}
 		case ConnectToCanvas:
+			d, _ := json.Marshal(initMessage.Data)
 			var ctcMessage ConnectToCanvasMessage
-			json.Unmarshal(initMessage.Data, &ctcMessage)
+			json.Unmarshal(d, &ctcMessage)
 			mu.Lock()
 			for _, cnv := range canvases {
 				if cnv.Id == ctcMessage.CanvasId {
@@ -116,8 +121,11 @@ func handleWebsocket(w http.ResponseWriter, r *http.Request) {
 						user = u
 					}
 				}
-				break
+				if user != nil {
+					break
+				}
 			}
+			userCreated = true
 			user = &User{}
 			user.Id = uuid.Must(uuid.NewV4()).String()
 			user.CurrentCanvasId = canvas.Id
@@ -131,91 +139,58 @@ func handleWebsocket(w http.ResponseWriter, r *http.Request) {
 		// TODO: handle wrong init message
 	}
 
+	log.Println(initMessage)
+	log.Println(canvas)
+	log.Println(user)
+
+	if canvas == nil {
+		// TODO: handle later, maybe in a loop for(canvas == nil) with try count
+		return
+	}
+
 	var room *Room
-	if canvas != nil {
-		mu.Lock()
-		for _, r := range socketRooms {
-			if r.CanvasId == canvas.Id {
-				room = r
-			}
-		}
-		mu.Unlock()
-		if room == nil {
-			room = &Room{
-				CanvasId:  canvas.Id,
-				Broadcast: make(chan []byte),
-			}
-			socketRooms = append(socketRooms, room)
+	mu.Lock()
+	for _, r := range socketRooms {
+		if r.CanvasId == canvas.Id {
+			room = r
 		}
 	}
-
-	// go handleRead(conn, userId)
-	// go handleWrite(conn, userId)
-}
-
-func handleRead(conn *websocket.Conn, userId int) {
-	for {
-		_, message, err := conn.ReadMessage()
-		if err != nil {
-			mu.Lock()
-			delete(clients, conn)
-			mu.Unlock()
-			fmt.Println("Error reading message:", err)
-		}
-		fmt.Printf("Received: %s\n", message)
-
-		var jsonData RoomData
-		json.Unmarshal(message, &jsonData)
-
-		roomId := jsonData.Id
-		rooms[roomId] = jsonData
-		userRoom[userId] = roomId
-
-		if roomUsers[roomId] != nil {
-			roomUsers[roomId][userId] = true
-		} else {
-			roomUsers[roomId] = make(map[int]any)
-			roomUsers[roomId][userId] = true
-		}
-
-		roomBroadcasts[roomId] <- message
-
-		for k, v := range userOutChannels {
-			if k != userId {
-				_, exists := roomUsers[roomId][k]
-				if exists {
-					v <- []byte("updated")
-				}
-			}
-		}
-	}
-}
-
-func handleWrite(conn *websocket.Conn, userId int) {
-	for {
-		// for msg := range userOutChannels[userId] {
-		// 	if string(msg) == "updated" {
-		// 		data, err := json.Marshal(rooms[userRoom[userId]])
-		// 		if err != nil {
-		// 			log.Println(err)
-		// 		}
-		// 		if err := conn.WriteMessage(websocket.TextMessage, data); err != nil {
-		// 			fmt.Println("Error writing message:", err)
-		// 			break
-		// 		}
-		// 	}
-		// }
-
-		message := <-roomBroadcasts[userRoom[userId]]
-
+	mu.Unlock()
+	if room == nil {
+		room = newRoom(canvas.Id)
+		go room.run()
 		mu.Lock()
-		for client := range clients {
-			err := client.WriteMessage(websocket.TextMessage, message)
-			if err != nil {
-				client.Close()
-				delete(clients, client)
-			}
-		}
+		socketRooms = append(socketRooms, room)
 		mu.Unlock()
 	}
+
+	client := &Client{room: room, user: user, conn: conn, send: make(chan []byte, 256)}
+	room.register <- client
+
+	if canvasCreated {
+		canvasCreatedEvent := CanvasCreatedMessage{
+			Canvas: *canvas,
+		}
+		message := Message{
+			Type: CanvasCreated,
+			Data: canvasCreatedEvent,
+		}
+		data, _ := json.Marshal(message)
+		client.send <- data
+	}
+
+	if userCreated {
+		userCreatedEvent := UserCreatedMessage{
+			User: *user,
+		}
+		message := Message{
+			Type: UserCreated,
+			Data: userCreatedEvent,
+		}
+		data, _ := json.Marshal(message)
+		client.send <- data
+	}
+
+	go client.readPump()
+	go client.writePump()
 }

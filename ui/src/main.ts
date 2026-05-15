@@ -1,3 +1,5 @@
+import { type Message, MessageType } from "./messaging.js"
+
 const canvas = document.getElementById("canvas") as HTMLCanvasElement
 canvas.width = window.innerWidth
 canvas.height = window.innerHeight
@@ -48,51 +50,44 @@ interface Entity {
     draw(): void
 }
 
-enum MessageType {
-    Snapshot,
-    Update
-}
-
-interface Message {
-    type: MessageType
-}
-
-interface RoomData {
+interface CanvasData {
     id: string
     cameraTarget: Vec2
     objects: Entity[]
 }
 
-let roomData: RoomData = {
+let canvasData: CanvasData = {
     id: "",
     cameraTarget: {x:0,y:0},
     objects: []
 }
+
+let cursors: Map<string, {p:Vec2, c:string}> = new Map()
 
 const randRange = (min: number = 0, max: number = 1) => {
     let r = min/max
     return (Math.random()+r) * max
 }
 
+const randColor = () => {
+    return Math.floor(randRange(0.5)*0xFF + randRange(0.5)*0xFF00 + randRange(0.5)*0xFF0000).toString(16)
+}
+
 function drawRectangle(this: Entity) {
     ctx.fillStyle = this.color as string
-    ctx.fillRect(this.position.x - roomData.cameraTarget.x, this.position.y-roomData.cameraTarget.y, this.width as number, this.height as number)
+    ctx.fillRect(this.position.x - canvasData.cameraTarget.x, this.position.y-canvasData.cameraTarget.y, this.width as number, this.height as number)
 }
 
 function drawCircle(this: Entity) {
     ctx.beginPath()
     ctx.fillStyle = this.color as string
     // ctx.moveTo(this.position.x - cameraTarget.x, this.position.y-cameraTarget.y)
-    ctx.arc(this.position.x - roomData.cameraTarget.x, this.position.y-roomData.cameraTarget.y, this.radius as number, 0, 2*Math.PI, true)
+    ctx.arc(this.position.x - canvasData.cameraTarget.x, this.position.y-canvasData.cameraTarget.y, this.radius as number, 0, 2*Math.PI, true)
     ctx.fill()
     ctx.stroke()
 }
 
 let objects: Entity[] = []
-
-function fillData() {
-
-}
 
 for(let i = 0; i < 50; i++) {
     let s = Math.random() > 0.5 ? Shape.Rect : Shape.Circle
@@ -107,62 +102,93 @@ for(let i = 0; i < 50; i++) {
     })
 }
 
-if(location.pathname.slice(1).split("/")[0]?.length == 36) {
-    roomData.id = location.pathname.slice(1).split("/")[0] as string
-
-    websocket.addEventListener("open", (ev) => {
-        console.log("Socket Connected");
-        websocketReady = true
-    })
-
-    websocket.addEventListener("message", (ev: MessageEvent) => {
-        try {
-            let v = JSON.parse(ev.data)
-            if(v.id && v.cameraTarget) {
-                roomData = v
-            }
-        } catch(err) {
-            console.log(err);
+const handleWebsocketMessages = (ev: MessageEvent) => {
+    try {
+        let v = JSON.parse(ev.data)
+        console.log(v);
+        switch (v.type) {
+            case MessageType.CanvasCreated:
+                console.log(v.data);
+                canvasData.id = v.data.canvas.id
+                history.pushState({}, "", canvasData.id)
+                break;
+            case MessageType.UserCreated:
+                console.log(v.data);
+                localStorage.setItem("user", JSON.stringify(v.data.user))
+                localStorage.setItem("user_id", v.data.user.id)
+                break;
+            case MessageType.CursorUpdate:
+                if(v.data.user_id != localStorage.getItem("user_id")) {
+                    if(v.data.disconnected) {
+                        cursors.delete(v.data.user_id)
+                        break
+                    }
+                    let old = cursors.get(v.data.user_id)
+                    if(old == undefined) {
+                        // TODO: make sure color isn't too bright for white text on top
+                        old = {p: v.data.cursor_pos, c: "#" + randColor()}
+                    }
+                    old.p = v.data.cursor_pos
+                    cursors.set(v.data.user_id, old)
+                }
+                break;
+            default:
+                break;
         }
-    })
-} else {
-    roomData.id = crypto.randomUUID()
-    history.pushState({}, "", roomData.id)
+    } catch(err) {
+        console.log(err);
+    }
+}
+
+if(location.pathname.slice(1).split("/")[0]?.length == 36) {
+    // Init message ConnectToCanvas
+    canvasData.id = location.pathname.slice(1).split("/")[0] as string
 
     websocket.addEventListener("open", (ev) => {
         console.log("Socket Connected");
-        websocketReady = true
+        // init message
         websocket.send(JSON.stringify({
-            id: roomData.id,
-            cameraTarget: roomData.cameraTarget
+            type: MessageType.ConnectToCanvas,
+            data: {
+                user_id: localStorage.getItem("user_id") ?? "",
+                canvas_id: canvasData.id
+            }
         }))
     })
 
-    websocket.addEventListener("message", (ev: MessageEvent) => {
-        try {
-            let v = JSON.parse(ev.data)
-            if(v.id && v.cameraTarget) {
-                roomData = v
+    websocket.addEventListener("message", handleWebsocketMessages)
+} else {
+    // Init message NewCanvas
+    // canvasData.id = crypto.randomUUID()
+    // history.pushState({}, "", canvasData.id)
+
+    websocket.addEventListener("open", (ev) => {
+        console.log("Socket Connected");
+        // init message
+        websocket.send(JSON.stringify({
+            type: MessageType.NewCanvas,
+            data: {
+                user_id: localStorage.getItem("user_id") ?? ""
             }
-        } catch(err) {
-            console.log(err);
-        }
+        }))
     })
+
+    websocket.addEventListener("message", handleWebsocketMessages)
 }
 
 const update = (time: DOMHighResTimeStamp) => {
     // UPDATE
     if(keys["KeyA"]) {
-        roomData.cameraTarget.x -= 10
+        canvasData.cameraTarget.x -= 10
     }
     if(keys["KeyD"]) {
-        roomData.cameraTarget.x += 10
+        canvasData.cameraTarget.x += 10
     }
     if(keys["KeyW"]) {
-        roomData.cameraTarget.y -= 10
+        canvasData.cameraTarget.y -= 10
     }
     if(keys["KeyS"]) {
-        roomData.cameraTarget.y += 10
+        canvasData.cameraTarget.y += 10
     }
 
     let mouseDelta = {x: mouseTarget.x - mouseCurrent.x, y: mouseTarget.y - mouseCurrent.y}
@@ -171,8 +197,8 @@ const update = (time: DOMHighResTimeStamp) => {
     mouseCurrent.y += mouseDelta.y
 
     if(mouseDown && keys["ControlLeft"]) {
-        roomData.cameraTarget.x -= mouseDelta.x
-        roomData.cameraTarget.y -= mouseDelta.y
+        canvasData.cameraTarget.x -= mouseDelta.x
+        canvasData.cameraTarget.y -= mouseDelta.y
     }
 
     // DRAW
@@ -181,6 +207,21 @@ const update = (time: DOMHighResTimeStamp) => {
 
     for(let e of objects) {
         e.draw()
+    }
+
+    for(const [k,v] of cursors) {
+        ctx.fillStyle = v.c
+        ctx.beginPath();
+        ctx.moveTo(v.p.x, v.p.y);
+        ctx.lineTo(v.p.x+12, v.p.y+15);
+        ctx.lineTo(v.p.x, v.p.y+20);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.roundRect(v.p.x+10, v.p.y+15, 240, 16, [40]);
+        ctx.fill();
+        ctx.fillStyle = "white"
+        ctx.font = "12px sans-serif";
+        ctx.fillText(k, v.p.x+15, v.p.y+27);
     }
 
     requestAnimationFrame(update)
@@ -217,11 +258,37 @@ window.addEventListener("mousemove", (ev) => {
     mouseTarget.y = ev.clientY
     if(websocket.OPEN && keys["ControlLeft"] && mouseDown) {
         websocket.send(JSON.stringify({
-            id: roomData.id,
-            cameraTarget: roomData.cameraTarget
+            id: canvasData.id,
+            cameraTarget: canvasData.cameraTarget
+        }))
+    }
+
+    if(websocket.OPEN) {
+        websocket.send(JSON.stringify({
+            type: MessageType.CursorUpdate,
+            data: {
+                user_id: localStorage.getItem("user_id"),
+                cursor_pos: mouseTarget
+            }
         }))
     }
 })
+
+window.addEventListener('beforeunload', () => {
+    // Check if the socket is open before trying to send
+    if (websocket.readyState === WebSocket.OPEN) {
+        websocket.send(JSON.stringify({
+            type: MessageType.CursorUpdate,
+            data: {
+                user_id: localStorage.getItem("user_id"),
+                cursor_pos: {x:null,y:null},
+                disconnected: true
+            }
+        }));
+        // Optional: Gracefully close the connection manually
+        websocket.close();
+    }
+});
 
 window.addEventListener("mousedown", () => mouseDown = true)
 window.addEventListener("mouseup", () => mouseDown = false)
