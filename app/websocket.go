@@ -58,18 +58,23 @@ func handleWebsocket(w http.ResponseWriter, r *http.Request) {
 	// but we're testing with in-memory data for now
 	var canvas *Canvas
 	var user *User
-	canvasCreated := false
 	userCreated := false
 	if initMessage.Type == ConnectToCanvas || initMessage.Type == NewCanvas {
 		switch initMessage.Type {
 		case NewCanvas:
-			canvasCreated = true
 			d, _ := json.Marshal(initMessage.Data)
 			var newCanvasMsg NewCanvasMessage
 			json.Unmarshal(d, &newCanvasMsg)
 			{
-				canvas = &Canvas{}
-				canvas.Id = uuid.Must(uuid.NewV4()).String()
+				canvas = &Canvas{
+					Id: uuid.Must(uuid.NewV4()).String(),
+					Snapshot: &CanvasData{
+						Shapes:       []*Shape{},
+						Text:         []*Text{},
+						BrushStrokes: []*BrushStroke{},
+					},
+					EventLog: []*Event{},
+				}
 
 				if len(newCanvasMsg.UserId) > 0 {
 					mu.Lock()
@@ -139,10 +144,6 @@ func handleWebsocket(w http.ResponseWriter, r *http.Request) {
 		// TODO: handle wrong init message
 	}
 
-	log.Println(initMessage)
-	log.Println(canvas)
-	log.Println(user)
-
 	if canvas == nil {
 		// TODO: handle later, maybe in a loop for(canvas == nil) with try count
 		return
@@ -167,17 +168,15 @@ func handleWebsocket(w http.ResponseWriter, r *http.Request) {
 	client := &Client{room: room, user: user, conn: conn, send: make(chan []byte, 256)}
 	room.register <- client
 
-	if canvasCreated {
-		canvasCreatedEvent := CanvasCreatedMessage{
-			Canvas: *canvas,
-		}
-		message := Message{
-			Type: CanvasCreated,
-			Data: canvasCreatedEvent,
-		}
-		data, _ := json.Marshal(message)
-		client.send <- data
+	canvasCreatedEvent := CanvasCreatedMessage{
+		Canvas: *canvas,
 	}
+	resMessage := Message{
+		Type: CanvasCreated,
+		Data: canvasCreatedEvent,
+	}
+	data, _ := json.Marshal(resMessage)
+	client.send <- data
 
 	if userCreated {
 		userCreatedEvent := UserCreatedMessage{

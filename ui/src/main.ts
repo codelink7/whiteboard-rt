@@ -91,7 +91,7 @@ const handleWebsocketMessages = (ev: MessageEvent) => {
         let v = JSON.parse(ev.data)
         switch (v.type) {
             case MessageType.CanvasCreated:
-                wbCanvas.id = v.data.canvas.id
+                wbCanvas = {...v.data.canvas}
                 history.pushState({}, "", wbCanvas.id)
                 break;
             case MessageType.UserCreated:
