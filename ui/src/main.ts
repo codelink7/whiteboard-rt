@@ -61,7 +61,13 @@ const randRange = (min: number = 0, max: number = 1) => {
 }
 
 const randColor = () => {
-    return Math.floor(randRange(0.5)*0xFF + randRange(0.5)*0xFF00 + randRange(0.5)*0xFF0000).toString(16)
+        let r: number, g: number, b: number
+    do {
+        r = Math.floor(Math.random() * 256)
+        g = Math.floor(Math.random() * 256)
+        b = Math.floor(Math.random() * 256)
+    } while (r > 200 && g > 200 && b > 200)  
+    return ((r << 16) | (g << 8) | b).toString(16).padStart(6, "0")
 }
 
 function drawRectangle(s: Shape) {
